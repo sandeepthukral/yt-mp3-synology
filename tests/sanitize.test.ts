@@ -23,11 +23,38 @@ describe('sanitizeFilename', () => {
     expect(out.endsWith('word')).toBe(true);
   });
 
-  it('falls back when title is only special chars', () => {
-    expect(sanitizeFilename('★☆★☆')).toBe('audio');
+  it('falls back to a unique name when title is only special chars', () => {
+    expect(sanitizeFilename('★☆★☆')).toMatch(/^audio-\d+$/);
   });
 
   it('strips trailing dots', () => {
     expect(sanitizeFilename('Ending...')).toBe('Ending');
+  });
+
+  it('strips leading dots so it is not a hidden dotfile', () => {
+    expect(sanitizeFilename('.hidden file name')).toBe('hidden file name');
+  });
+
+  it('does not leave a trailing dot after truncation', () => {
+    const out = sanitizeFilename('Hello world. Foo bar', 12);
+    expect(out.endsWith('.')).toBe(false);
+    expect(out).toBe('Hello world');
+  });
+
+  it('collapses a title that is only dots to the fallback', () => {
+    expect(sanitizeFilename('...')).toMatch(/^audio-\d+$/);
+  });
+
+  it('keeps allowed dash/underscore/dot punctuation', () => {
+    expect(sanitizeFilename('lo-fi_beats vol.2')).toBe('lo-fi_beats vol.2');
+  });
+
+  it('returns the fallback for an empty title', () => {
+    expect(sanitizeFilename('')).toMatch(/^audio-\d+$/);
+  });
+
+  it('hard-cuts when there is no early word boundary', () => {
+    const out = sanitizeFilename('a'.repeat(80), 60);
+    expect(out).toBe('a'.repeat(60));
   });
 });
