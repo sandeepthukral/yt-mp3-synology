@@ -1,0 +1,23 @@
+{
+  "name": "yt2mp3",
+  "version": "1.0.0",
+  "description": "Personal YouTube-to-MP3 converter service (Fastify + yt-dlp + ffmpeg)",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "test:api": "playwright test"
+  },
+  "dependencies": {
+    "fastify": "^5.10.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "@types/node": "^22.7.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.10"
+  }
+}

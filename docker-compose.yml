@@ -1,0 +1,11 @@
+services:
+  yt2mp3:
+    build: .
+    container_name: yt2mp3
+    restart: unless-stopped
+    ports:
+      - "3030:3030"
+    environment:
+      - PORT=3030
+      - AUTH_TOKEN=${AUTH_TOKEN:?set AUTH_TOKEN in .env}
+      - DOWNLOAD_TIMEOUT_MS=900000
