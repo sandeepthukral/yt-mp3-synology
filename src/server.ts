@@ -85,6 +85,8 @@ async function convert(
         '-x',
         '--audio-format', 'mp3',
         '--audio-quality', '0',
+        // Tag the ID3 Artist field as "YouTube" on the extracted mp3.
+        '--postprocessor-args', 'ExtractAudio+ffmpeg:-metadata artist=YouTube',
         '-o', join(dir, 'audio.%(ext)s'),
         url,
       ],
@@ -111,7 +113,13 @@ async function convert(
   } catch (err) {
     await rm(dir, { recursive: true, force: true });
     req.log.error(err, 'conversion failed');
-    return reply.code(502).send({ error: 'conversion failed' });
+    // Surface the underlying reason (e.g. timeout on long videos); full message capped at 100 chars.
+    const timedOut = typeof err === 'object' && err !== null && (err as { killed?: boolean }).killed;
+    const detail = timedOut
+      ? `timed out after ${Math.round(DOWNLOAD_TIMEOUT_MS / 1000)}s (video too long?)`
+      : (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').trim();
+    const message = `conversion failed: ${detail}`.slice(0, 100);
+    return reply.code(502).send({ error: message });
   }
 }
 

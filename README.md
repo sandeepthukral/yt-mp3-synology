@@ -13,10 +13,24 @@ sanitized title as filename.
 
 ## API
 
-- `GET /health` → `{ ok: true }`
+- `GET /health` → `{ ok: true, queueDepth: <n> }`
 - `POST /convert` `{ "url": "https://youtube.com/watch?v=..." }`
   - headers: `X-Auth-Token: <secret>`
   - returns `audio/mpeg` with `Content-Disposition: attachment; filename="<sanitized title>.mp3"`
+  - `503` if the conversion queue is full (see below)
+
+## Concurrency
+
+Conversions are **serialized** — one yt-dlp/ffmpeg job runs at a time, because the
+DS220+'s CPU crawls under concurrent encodes. Extra requests wait their turn.
+
+- Requests beyond `MAX_QUEUE` (default `4`, incl. the in-flight one) get
+  `503 "server busy, try again shortly"` instead of piling up and starving the NAS.
+- `GET /health` reports the current `queueDepth` so you can see how backed up it is.
+- Auth/URL validation happen *before* queueing, so bad requests still fail fast
+  (`401`/`400`) without taking a slot.
+
+Configure via the `MAX_QUEUE` env var.
 
 ## Local dev
 
@@ -77,8 +91,8 @@ BASE_URL=http://ds220.tailXXXX.ts.net:3030 AUTH_TOKEN=... npm run test:api
       Shortcut doesn't hold one long HTTP request
 - [ ] If YouTube starts bot-blocking even from the residential IP: add
       `--cookies` support (mount a cookies.txt into the container)
-- [ ] Rate limiting / single-conversion queue (DS220+ has limited CPU;
-      concurrent ffmpeg runs will crawl)
+- [x] Rate limiting / single-conversion queue (DS220+ has limited CPU;
+      concurrent ffmpeg runs will crawl) — see [Concurrency](#concurrency)
 - [ ] Embed ID3 tags (title, channel as artist) via yt-dlp `--embed-metadata`
 - [ ] Optional: also drop a copy of the MP3 onto a NAS shared folder
 - [ ] GitHub Actions: run vitest on push (skip Playwright, needs live server)
