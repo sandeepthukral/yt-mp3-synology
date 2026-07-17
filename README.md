@@ -95,7 +95,7 @@ BASE_URL=http://ds220.tailXXXX.ts.net:3030 AUTH_TOKEN=... npm run test:api
       concurrent ffmpeg runs will crawl) — see [Concurrency](#concurrency)
 - [ ] Embed ID3 tags (title, channel as artist) via yt-dlp `--embed-metadata`
 - [ ] Optional: also drop a copy of the MP3 onto a NAS shared folder
-- [ ] GitHub Actions: run vitest on push (skip Playwright, needs live server)
+- [x] GitHub Actions: run vitest on push (skip Playwright, needs live server)
 
 ## Legal note
 
