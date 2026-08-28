@@ -7,6 +7,14 @@ export type JobStatus = 'queued' | 'running' | 'done' | 'error';
 export interface Job {
   id: string;
   url: string;
+  /**
+   * Per-job secret for `GET /jobs/:id/download?key=…`. Clients that hand the
+   * download URL to something that can't set headers — chrome.downloads, a
+   * plain <a href> — have no way to send X-Auth-Token. A per-job key keeps
+   * AUTH_TOKEN itself out of download histories and access logs, and dies
+   * with the job.
+   */
+  downloadKey: string;
   status: JobStatus;
   createdAt: number;
   /** Set once the job reaches a terminal state; drives TTL expiry. */
@@ -24,7 +32,13 @@ export interface Job {
 const jobs = new Map<string, Job>();
 
 export function createJob(url: string): Job {
-  const job: Job = { id: randomUUID(), url, status: 'queued', createdAt: Date.now() };
+  const job: Job = {
+    id: randomUUID(),
+    url,
+    downloadKey: randomUUID(),
+    status: 'queued',
+    createdAt: Date.now(),
+  };
   jobs.set(job.id, job);
   return job;
 }
@@ -50,11 +64,15 @@ export function markError(id: string, error: string): void {
   Object.assign(job, { status: 'error', error, finishedAt: Date.now() });
 }
 
-/** The public shape of a job: internal paths stay server-side. */
+/**
+ * The public shape of a job: internal paths stay server-side. The download key
+ * is included — every route that returns this already required AUTH_TOKEN.
+ */
 export function publicView(job: Job) {
   return {
     id: job.id,
     status: job.status,
+    downloadKey: job.downloadKey,
     ...(job.filename ? { filename: job.filename } : {}),
     ...(job.error ? { error: job.error } : {}),
   };

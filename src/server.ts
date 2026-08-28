@@ -141,24 +141,32 @@ app.get<{ Params: { id: string } }>('/jobs/:id', async (req, reply) => {
   return reply.send(publicView(job));
 });
 
-app.get<{ Params: { id: string } }>('/jobs/:id/download', async (req, reply) => {
-  if (!AUTH_TOKEN || req.headers['x-auth-token'] !== AUTH_TOKEN) {
-    return reply.code(401).send({ error: 'unauthorized' });
-  }
-  const job = getJob(req.params.id);
-  if (!job) return reply.code(404).send({ error: 'no such job (or it expired)' });
-  if (job.status === 'error') return reply.code(502).send({ error: job.error });
-  if (job.status !== 'done' || !job.path || !job.filename) {
-    return reply.code(409).send({ error: `job is ${job.status}`, status: job.status });
-  }
+app.get<{ Params: { id: string }; Querystring: { key?: string } }>(
+  '/jobs/:id/download',
+  async (req, reply) => {
+    const job = getJob(req.params.id);
+    // Two ways in. The header, as everywhere else — or the job's own download
+    // key in the query string, for clients that hand this URL to something
+    // that can't set headers (chrome.downloads, a plain link). Checking the
+    // key before existence keeps the 401 from confirming whether an id exists.
+    const byHeader = Boolean(AUTH_TOKEN) && req.headers['x-auth-token'] === AUTH_TOKEN;
+    const byKey = Boolean(job) && Boolean(req.query.key) && req.query.key === job!.downloadKey;
+    if (!byHeader && !byKey) return reply.code(401).send({ error: 'unauthorized' });
 
-  reply
-    .header('Content-Type', 'audio/mpeg')
-    .header('Content-Length', statSync(job.path).size)
-    .header('Content-Disposition', contentDisposition(job.filename));
-  // The file stays until the job expires, so a dropped download can be retried.
-  return reply.send(createReadStream(job.path));
-});
+    if (!job) return reply.code(404).send({ error: 'no such job (or it expired)' });
+    if (job.status === 'error') return reply.code(502).send({ error: job.error });
+    if (job.status !== 'done' || !job.path || !job.filename) {
+      return reply.code(409).send({ error: `job is ${job.status}`, status: job.status });
+    }
+
+    reply
+      .header('Content-Type', 'audio/mpeg')
+      .header('Content-Length', statSync(job.path).size)
+      .header('Content-Disposition', contentDisposition(job.filename));
+    // The file stays until the job expires, so a dropped download can be retried.
+    return reply.send(createReadStream(job.path));
+  },
+);
 
 function contentDisposition(filename: string): string {
   return `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`;

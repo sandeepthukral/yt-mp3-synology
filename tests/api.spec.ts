@@ -69,8 +69,9 @@ test('async job mode converts and serves an mp3', async ({ request }) => {
     data: { url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw' },
   });
   expect(submit.status()).toBe(202);
-  const { id, status } = await submit.json();
+  const { id, status, downloadKey } = await submit.json();
   expect(id).toBeTruthy();
+  expect(downloadKey).toBeTruthy();
   expect(['queued', 'running']).toContain(status);
 
   // Downloading before the conversion finishes is a 409, not a partial file.
@@ -105,4 +106,17 @@ test('async job mode converts and serves an mp3', async ({ request }) => {
     headers: { 'x-auth-token': AUTH_TOKEN },
   });
   expect(again.status()).toBe(200);
+
+  // No header at all, just the job's key — this is the URL the Chrome
+  // extension hands to chrome.downloads, which cannot set headers.
+  const keyed = await request.get(`${BASE_URL}/jobs/${id}/download?key=${downloadKey}`);
+  expect(keyed.status()).toBe(200);
+  expect(keyed.headers()['content-type']).toBe('audio/mpeg');
+  expect((await keyed.body()).length).toBeGreaterThan(50_000);
+
+  const wrongKey = await request.get(`${BASE_URL}/jobs/${id}/download?key=not-the-key`);
+  expect(wrongKey.status()).toBe(401);
+
+  const noKey = await request.get(`${BASE_URL}/jobs/${id}/download`);
+  expect(noKey.status()).toBe(401);
 });
