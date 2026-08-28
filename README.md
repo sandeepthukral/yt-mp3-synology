@@ -55,12 +55,14 @@ channel mapped onto the **Artist** field, so VLC groups downloads by channel.
 | `MAX_QUEUE` | `4` | Queued conversions before `503` |
 | `DOWNLOAD_TIMEOUT_MS` | `900000` | Per-conversion yt-dlp timeout |
 | `JOB_TTL_MS` | `1800000` | How long a finished async job is retained |
-| `SAVE_DIR` | unset | If set, a copy of each mp3 is written here |
+| `SAVE_DIR` | `/share` | A copy of each mp3 is written here, in addition to being returned to the caller |
 | `COOKIES_FILE` | unset | If set, passed to yt-dlp as `--cookies` |
 | `YTDLP_PATH` | `yt-dlp` | yt-dlp binary location |
 
-`SAVE_DIR` and `COOKIES_FILE` both need a matching bind mount — see the
-commented block in `docker-compose.yml`. A failed copy to `SAVE_DIR` (share
+`SAVE_DIR` is wired up in `docker-compose.yml` to `/volume1/music/downloaded`
+on the NAS. Saving a copy never replaces the download — the requester still
+gets the file back on the same request. `COOKIES_FILE` needs its own bind
+mount, still commented out in the compose file. A failed copy to `SAVE_DIR` (share
 unmounted, disk full) is logged and ignored rather than failing the conversion,
 and colliding filenames get a ` (2)`, ` (3)` suffix.
 
