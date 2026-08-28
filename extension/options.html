@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>YT → MP3 — Settings</title>
+<link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <main class="card">
+    <h1>YT → MP3 settings</h1>
+    <p class="subtitle">
+      Connects this extension to your personal <code>yt2mp3</code> server running on your Synology NAS.
+    </p>
+
+    <div id="statusBanner" class="banner banner--warning" role="status">
+      Token, IP Address, and Port are all required before this extension will work.
+    </div>
+
+    <form id="settingsForm" novalidate>
+      <label for="token">
+        Token
+        <span class="required" data-for="token">Required</span>
+      </label>
+      <div class="input-with-toggle">
+        <input type="password" id="token" name="token" autocomplete="off" placeholder="X-Auth-Token value" />
+        <button type="button" id="toggleToken" class="ghost-btn" aria-label="Show token">Show</button>
+      </div>
+      <p class="hint">This is the <code>AUTH_TOKEN</code> value set on your NAS (sent as the <code>X-Auth-Token</code> header).</p>
+
+      <label for="host">
+        IP Address / Hostname
+        <span class="required" data-for="host">Required</span>
+      </label>
+      <input type="text" id="host" name="host" autocomplete="off" placeholder="e.g. 100.101.102.103 or ds220.tailXXXX.ts.net" />
+
+      <label for="port">
+        Port
+        <span class="required" data-for="port">Required</span>
+      </label>
+      <input type="number" id="port" name="port" min="1" max="65535" autocomplete="off" placeholder="3030" />
+
+      <label class="checkbox-row" for="useHttps">
+        <input type="checkbox" id="useHttps" name="useHttps" />
+        Use HTTPS instead of HTTP
+      </label>
+
+      <div class="actions">
+        <button type="submit" id="saveBtn" class="primary-btn">Save settings</button>
+        <button type="button" id="testBtn" class="secondary-btn">Test connection</button>
+      </div>
+
+      <p id="formMessage" class="form-message" role="status"></p>
+    </form>
+
+    <section id="lastErrorSection" class="last-error" hidden>
+      <h2>Last error</h2>
+      <p id="lastErrorText"></p>
+      <p class="hint" id="lastErrorTime"></p>
+      <button type="button" id="clearErrorBtn" class="ghost-btn">Dismiss</button>
+    </section>
+
+    <section class="usage">
+      <h2>How to use</h2>
+      <ol>
+        <li>Fill in the fields above and save — this must match your NAS's Tailscale address and <code>AUTH_TOKEN</code>.</li>
+        <li>Open any YouTube video (youtube.com, m.youtube.com, music.youtube.com, or a youtu.be link).</li>
+        <li>Click the extension's toolbar button. The MP3 downloads automatically once the NAS finishes converting it.</li>
+      </ol>
+    </section>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>

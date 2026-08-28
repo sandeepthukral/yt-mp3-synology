@@ -8,16 +8,61 @@ sanitized title as filename.
 
 - **Server**: Fastify + TypeScript, shells out to `yt-dlp` (which drives `ffmpeg`)
 - **Deploy**: Docker on Synology DS220+ (x86_64), reachable only via Tailscale
-- **Client**: iOS Shortcut in the share sheet (no app, no Apple developer account)
+- **Clients**: iOS Shortcut in the share sheet (no app, no Apple developer
+  account), plus a Chrome extension in `extension/`
 - **Auth**: `X-Auth-Token` shared-secret header (`AUTH_TOKEN` env var)
 
 ## API
 
+All routes except `/health` require the `X-Auth-Token: <secret>` header.
+
 - `GET /health` → `{ ok: true, queueDepth: <n> }`
 - `POST /convert` `{ "url": "https://youtube.com/watch?v=..." }`
-  - headers: `X-Auth-Token: <secret>`
   - returns `audio/mpeg` with `Content-Disposition: attachment; filename="<sanitized title>.mp3"`
   - `503` if the conversion queue is full (see below)
+  - one long-lived HTTP request — fine for short videos, see async mode for the rest
+
+### Async job mode
+
+For long videos, where holding a single HTTP request open is fragile:
+
+- `POST /jobs` `{ "url": "..." }` → `202 { id, downloadKey, status: "queued" }`
+- `GET /jobs/:id` → `{ id, downloadKey, status, filename?, error? }`
+  - `status` is `queued` → `running` → `done` | `error`
+- `GET /jobs/:id/download` → the mp3, same headers as `/convert`
+  - `409` if the job isn't finished yet, `502` if it failed, `404` if the id is
+    unknown *or* has expired
+  - accepts `?key=<downloadKey>` instead of the header, for clients that hand
+    this URL to something that can't set one (`chrome.downloads`, a plain link).
+    A per-job key rather than `AUTH_TOKEN` keeps the shared token out of
+    download histories and access logs, and the grant expires with the job.
+
+Jobs share the same one-at-a-time queue and `MAX_QUEUE` limit as `/convert`.
+A finished job's mp3 is kept on disk for `JOB_TTL_MS` (default 30 min) so a
+dropped download can be retried, then swept along with the job record.
+
+## ID3 tags
+
+Extracted mp3s carry embedded metadata (`--embed-metadata`), with the YouTube
+channel mapped onto the **Artist** field, so VLC groups downloads by channel.
+
+## Configuration
+
+| Env var | Default | Purpose |
+| --- | --- | --- |
+| `PORT` | `3000` (`3030` in Docker) | Listen port |
+| `AUTH_TOKEN` | — (required) | Shared secret for `X-Auth-Token` |
+| `MAX_QUEUE` | `4` | Queued conversions before `503` |
+| `DOWNLOAD_TIMEOUT_MS` | `900000` | Per-conversion yt-dlp timeout |
+| `JOB_TTL_MS` | `1800000` | How long a finished async job is retained |
+| `SAVE_DIR` | unset | If set, a copy of each mp3 is written here |
+| `COOKIES_FILE` | unset | If set, passed to yt-dlp as `--cookies` |
+| `YTDLP_PATH` | `yt-dlp` | yt-dlp binary location |
+
+`SAVE_DIR` and `COOKIES_FILE` both need a matching bind mount — see the
+commented block in `docker-compose.yml`. A failed copy to `SAVE_DIR` (share
+unmounted, disk full) is logged and ignored rather than failing the conversion,
+and colliding filenames get a ` (2)`, ` (3)` suffix.
 
 ## Concurrency
 
@@ -37,7 +82,7 @@ Configure via the `MAX_QUEUE` env var.
 ```bash
 nvm use 22   # or your usual node
 npm install
-npm test          # vitest unit tests (sanitizer)
+npm test          # vitest unit tests (sanitizer, jobs, save-copy naming)
 npm run dev       # needs yt-dlp + ffmpeg on PATH
 ```
 
@@ -75,9 +120,32 @@ Create a new Shortcut, name it **"YT → MP3"**:
    - Destination: On My iPhone → **VLC**
 4. Optional: **Show Notification** — "Saved ✔︎"
 
+### Long videos: the async variant
+
+`/convert` holds one HTTP request open for the whole conversion, which iOS will
+eventually give up on. For long videos, build the Shortcut against the job API
+instead:
+
+1. **Get Contents of URL** — `POST` to `…/jobs`, same headers and JSON body as
+   above. **Get Dictionary Value** `id` from the result.
+2. **Repeat** 60 times:
+   - **Get Contents of URL** — `GET …/jobs/<id>` with the token header
+   - **If** **Get Dictionary Value** `status` is `done` → **Exit Repeat**
+   - **Wait** 5 seconds
+3. **Get Contents of URL** — `GET …/jobs/<id>/download` with the token header.
+4. **Save File** as before.
+
 The filename comes from the server's Content-Disposition header, so naming is
 handled server-side. Anything saved into the VLC folder appears in VLC's
 library automatically.
+
+## Chrome extension
+
+`extension/` is a Manifest V3 extension: click the toolbar button on a YouTube
+tab and the MP3 lands in Downloads. It uses the job API above and hands the
+download URL to `chrome.downloads`, so Chrome streams the file to disk and
+long videos aren't limited by the service worker's memory. Load it unpacked —
+see [extension/README.md](extension/README.md).
 
 ## Playwright API test (against the live NAS)
 
@@ -87,14 +155,15 @@ BASE_URL=http://ds220.tailXXXX.ts.net:3030 AUTH_TOKEN=... npm run test:api
 
 ## Known issues / backlog (good Claude Code tasks)
 
-- [ ] Long videos: add async job mode (`POST /jobs` → poll → download) so the
-      Shortcut doesn't hold one long HTTP request
-- [ ] If YouTube starts bot-blocking even from the residential IP: add
-      `--cookies` support (mount a cookies.txt into the container)
+- [x] Long videos: add async job mode (`POST /jobs` → poll → download) so the
+      Shortcut doesn't hold one long HTTP request — see [Async job mode](#async-job-mode)
+- [x] If YouTube starts bot-blocking even from the residential IP: add
+      `--cookies` support (mount a cookies.txt into the container) — set `COOKIES_FILE`
 - [x] Rate limiting / single-conversion queue (DS220+ has limited CPU;
       concurrent ffmpeg runs will crawl) — see [Concurrency](#concurrency)
-- [ ] Embed ID3 tags (title, channel as artist) via yt-dlp `--embed-metadata`
-- [ ] Optional: also drop a copy of the MP3 onto a NAS shared folder
+- [x] Embed ID3 tags (title, channel as artist) via yt-dlp `--embed-metadata`
+      — see [ID3 tags](#id3-tags)
+- [x] Optional: also drop a copy of the MP3 onto a NAS shared folder — set `SAVE_DIR`
 - [x] GitHub Actions: run vitest on push (skip Playwright, needs live server)
 
 ## Legal note

@@ -1,21 +1,24 @@
 import Fastify from 'fastify';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { mkdtemp, rm, readdir } from 'node:fs/promises';
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import { rm } from 'node:fs/promises';
 import { createReadStream, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { sanitizeFilename } from './sanitize.js';
-
-const execFileP = promisify(execFile);
-
-const PORT = Number(process.env.PORT ?? 3000);
-const AUTH_TOKEN = process.env.AUTH_TOKEN ?? '';
-const YTDLP = process.env.YTDLP_PATH ?? 'yt-dlp';
-const DOWNLOAD_TIMEOUT_MS = Number(process.env.DOWNLOAD_TIMEOUT_MS ?? 15 * 60 * 1000);
-// Serialize conversions: the DS220+ has limited CPU, so concurrent ffmpeg runs
-// crawl. One heavy job runs at a time; extra requests wait, up to MAX_QUEUE.
-const MAX_QUEUE = Number(process.env.MAX_QUEUE ?? 4);
+import { PORT, AUTH_TOKEN, MAX_QUEUE } from './config.js';
+import {
+  fetchTitle,
+  convertToMp3,
+  maybeSaveCopy,
+  describeFailure,
+  MetadataError,
+} from './convert.js';
+import {
+  createJob,
+  getJob,
+  markRunning,
+  markDone,
+  markError,
+  publicView,
+  startSweeper,
+} from './jobs.js';
 
 // Single-slot mutex: each job runs after the previous one settles.
 let queueDepth = 0;
@@ -33,19 +36,30 @@ const app = Fastify({ logger: true });
 
 app.get('/health', async () => ({ ok: true, queueDepth }));
 
-app.post<{ Body: { url?: string } }>('/convert', async (req, reply) => {
+/** Shared gate for both conversion routes: auth, url shape, then queue capacity. */
+function admit(req: FastifyRequest, reply: FastifyReply, url: string | undefined): url is string {
   if (!AUTH_TOKEN || req.headers['x-auth-token'] !== AUTH_TOKEN) {
-    return reply.code(401).send({ error: 'unauthorized' });
+    reply.code(401).send({ error: 'unauthorized' });
+    return false;
   }
-  const url = req.body?.url;
   if (!url || !/^https?:\/\/(www\.|m\.|music\.)?(youtube\.com|youtu\.be)\//.test(url)) {
-    return reply.code(400).send({ error: 'invalid or missing YouTube url' });
+    reply.code(400).send({ error: 'invalid or missing YouTube url' });
+    return false;
   }
-
   // Reject rather than pile up unbounded when the box is already saturated.
   if (queueDepth >= MAX_QUEUE) {
-    return reply.code(503).send({ error: 'server busy, try again shortly' });
+    reply.code(503).send({ error: 'server busy, try again shortly' });
+    return false;
   }
+  return true;
+}
+
+// --- Synchronous conversion: one request, mp3 in the response -------------
+
+app.post<{ Body: { url?: string } }>('/convert', async (req, reply) => {
+  const url = req.body?.url;
+  if (!admit(req, reply, url)) return reply;
+
   queueDepth++;
   if (queueDepth > 1) req.log.info({ queueDepth }, 'conversion queued, waiting for slot');
   try {
@@ -55,73 +69,110 @@ app.post<{ Body: { url?: string } }>('/convert', async (req, reply) => {
   }
 });
 
-async function convert(
-  req: import('fastify').FastifyRequest,
-  reply: import('fastify').FastifyReply,
-  url: string,
-) {
-  // 1. Fetch title (fast, no download)
+async function convert(req: FastifyRequest, reply: FastifyReply, url: string) {
   let title: string;
   try {
-    const { stdout } = await execFileP(
-      YTDLP,
-      ['--no-playlist', '--print', 'title', '--skip-download', url],
-      { timeout: 60_000 },
-    );
-    title = stdout.trim().split('\n')[0] ?? 'audio';
+    title = await fetchTitle(url);
   } catch (err) {
     req.log.error(err, 'title fetch failed');
     return reply.code(502).send({ error: 'could not fetch video metadata' });
   }
-  const safeName = sanitizeFilename(title);
 
-  // 2. Download + extract mp3 into a temp dir
-  const dir = await mkdtemp(join(tmpdir(), 'yt2mp3-'));
+  let result;
   try {
-    await execFileP(
-      YTDLP,
-      [
-        '--no-playlist',
-        '-x',
-        '--audio-format', 'mp3',
-        '--audio-quality', '0',
-        // Tag the ID3 Artist field as "YouTube" on the extracted mp3.
-        '--postprocessor-args', 'ExtractAudio+ffmpeg:-metadata artist=YouTube',
-        '-o', join(dir, 'audio.%(ext)s'),
-        url,
-      ],
-      { timeout: DOWNLOAD_TIMEOUT_MS },
-    );
-    const files = await readdir(dir);
-    const mp3 = files.find((f) => f.endsWith('.mp3'));
-    if (!mp3) throw new Error('no mp3 produced');
+    result = await convertToMp3(url, title);
+  } catch (err) {
+    req.log.error(err, 'conversion failed');
+    return reply.code(502).send({ error: describeFailure(err) });
+  }
 
-    const path = join(dir, mp3);
-    const size = statSync(path).size;
+  await maybeSaveCopy(result.path, result.filename, req.log);
+
+  reply
+    .header('Content-Type', 'audio/mpeg')
+    .header('Content-Length', statSync(result.path).size)
+    .header('Content-Disposition', contentDisposition(result.filename));
+
+  const stream = createReadStream(result.path);
+  stream.on('close', () => void rm(result.dir, { recursive: true, force: true }));
+  return reply.send(stream);
+}
+
+// --- Async job mode: submit, poll, download -------------------------------
+// Long videos outlive an iOS Shortcut's patience for a single HTTP request, so
+// the Shortcut can instead submit a job, poll until it's done, then download.
+
+app.post<{ Body: { url?: string } }>('/jobs', async (req, reply) => {
+  const url = req.body?.url;
+  if (!admit(req, reply, url)) return reply;
+
+  const job = createJob(url);
+  queueDepth++;
+
+  // Deliberately not awaited: the response goes back immediately and the
+  // conversion continues in the background, behind the same one-at-a-time gate.
+  void runExclusive(async () => {
+    markRunning(job.id);
+    try {
+      const title = await fetchTitle(job.url);
+      const result = await convertToMp3(job.url, title);
+      await maybeSaveCopy(result.path, result.filename, req.log);
+      markDone(job.id, result.dir, result.path, result.filename);
+    } catch (err) {
+      req.log.error(err, 'job conversion failed');
+      markError(job.id, err instanceof MetadataError
+        ? 'could not fetch video metadata'
+        : describeFailure(err));
+    } finally {
+      queueDepth--;
+    }
+  });
+
+  return reply.code(202).send(publicView(job));
+});
+
+app.get<{ Params: { id: string } }>('/jobs/:id', async (req, reply) => {
+  if (!AUTH_TOKEN || req.headers['x-auth-token'] !== AUTH_TOKEN) {
+    return reply.code(401).send({ error: 'unauthorized' });
+  }
+  const job = getJob(req.params.id);
+  // Expired jobs are indistinguishable from ids that never existed, by design.
+  if (!job) return reply.code(404).send({ error: 'no such job (or it expired)' });
+  return reply.send(publicView(job));
+});
+
+app.get<{ Params: { id: string }; Querystring: { key?: string } }>(
+  '/jobs/:id/download',
+  async (req, reply) => {
+    const job = getJob(req.params.id);
+    // Two ways in. The header, as everywhere else — or the job's own download
+    // key in the query string, for clients that hand this URL to something
+    // that can't set headers (chrome.downloads, a plain link). Checking the
+    // key before existence keeps the 401 from confirming whether an id exists.
+    const byHeader = Boolean(AUTH_TOKEN) && req.headers['x-auth-token'] === AUTH_TOKEN;
+    const byKey = Boolean(job) && Boolean(req.query.key) && req.query.key === job!.downloadKey;
+    if (!byHeader && !byKey) return reply.code(401).send({ error: 'unauthorized' });
+
+    if (!job) return reply.code(404).send({ error: 'no such job (or it expired)' });
+    if (job.status === 'error') return reply.code(502).send({ error: job.error });
+    if (job.status !== 'done' || !job.path || !job.filename) {
+      return reply.code(409).send({ error: `job is ${job.status}`, status: job.status });
+    }
 
     reply
       .header('Content-Type', 'audio/mpeg')
-      .header('Content-Length', size)
-      .header(
-        'Content-Disposition',
-        `attachment; filename="${safeName}.mp3"; filename*=UTF-8''${encodeURIComponent(safeName)}.mp3`,
-      );
+      .header('Content-Length', statSync(job.path).size)
+      .header('Content-Disposition', contentDisposition(job.filename));
+    // The file stays until the job expires, so a dropped download can be retried.
+    return reply.send(createReadStream(job.path));
+  },
+);
 
-    const stream = createReadStream(path);
-    stream.on('close', () => void rm(dir, { recursive: true, force: true }));
-    return reply.send(stream);
-  } catch (err) {
-    await rm(dir, { recursive: true, force: true });
-    req.log.error(err, 'conversion failed');
-    // Surface the underlying reason (e.g. timeout on long videos); full message capped at 100 chars.
-    const timedOut = typeof err === 'object' && err !== null && (err as { killed?: boolean }).killed;
-    const detail = timedOut
-      ? `timed out after ${Math.round(DOWNLOAD_TIMEOUT_MS / 1000)}s (video too long?)`
-      : (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').trim();
-    const message = `conversion failed: ${detail}`.slice(0, 100);
-    return reply.code(502).send({ error: message });
-  }
+function contentDisposition(filename: string): string {
+  return `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
+
+startSweeper();
 
 app.listen({ port: PORT, host: '0.0.0.0' }).catch((err) => {
   app.log.error(err);
