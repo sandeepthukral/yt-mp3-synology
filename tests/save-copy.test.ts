@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { uniqueName, applyOwnership } from '../src/convert.js';
+import { uniqueName, applyOwnership, prepareShareDir } from '../src/convert.js';
 
 /** Build an `exists` probe backed by a fixed set of paths. */
 const existing = (...paths: string[]) => async (p: string) => paths.includes(p);
@@ -83,6 +83,46 @@ describe('applyOwnership', () => {
     expect(
       await applyOwnership('/share/Song.mp3', log, { uid: 1028, gid: 100, chownFn }),
     ).toBe(false);
+    expect(log.warn).toHaveBeenCalledOnce();
+  });
+});
+
+describe('prepareShareDir', () => {
+  const stubs = () => ({
+    mkdirFn: vi.fn(async () => undefined),
+    chmodFn: vi.fn(async () => {}),
+  });
+
+  it('creates the directory with the mode and sets it again afterwards', async () => {
+    // mkdir's mode is masked by the umask -- the explicit chmod is what
+    // actually leaves the share readable by a media server.
+    const { mkdirFn, chmodFn } = stubs();
+    await prepareShareDir('/share', silentLog(), { mode: 0o755, mkdirFn, chmodFn });
+    expect(mkdirFn).toHaveBeenCalledWith('/share', { recursive: true, mode: 0o755 });
+    expect(chmodFn).toHaveBeenCalledWith('/share', 0o755);
+  });
+
+  it('propagates a mkdir failure: there is nowhere to copy to', async () => {
+    const { chmodFn } = stubs();
+    const mkdirFn = vi.fn(async () => {
+      throw new Error('EROFS: read-only file system');
+    });
+    await expect(
+      prepareShareDir('/share', silentLog(), { mkdirFn, chmodFn }),
+    ).rejects.toThrow('EROFS');
+    expect(chmodFn).not.toHaveBeenCalled();
+  });
+
+  it('logs and carries on when the mode cannot be set', async () => {
+    // A share someone else created is still perfectly usable.
+    const { mkdirFn } = stubs();
+    const chmodFn = vi.fn(async () => {
+      throw new Error('EPERM: operation not permitted');
+    });
+    const log = silentLog();
+    await expect(
+      prepareShareDir('/share', log, { mkdirFn, chmodFn }),
+    ).resolves.toBeUndefined();
     expect(log.warn).toHaveBeenCalledOnce();
   });
 });

@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, readdir, copyFile, mkdir, access, chown } from 'node:fs/promises';
+import { mkdtemp, readdir, copyFile, mkdir, access, chown, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sanitizeFilename } from './sanitize.js';
@@ -11,6 +11,7 @@ import {
   SAVE_DIR,
   SAVE_UID,
   SAVE_GID,
+  SAVE_DIR_MODE,
 } from './config.js';
 
 const execFileP = promisify(execFile);
@@ -125,7 +126,7 @@ export async function maybeSaveCopy(
 ): Promise<string | undefined> {
   if (!SAVE_DIR) return undefined;
   try {
-    await mkdir(SAVE_DIR, { recursive: true });
+    await prepareShareDir(SAVE_DIR, log);
     const name = await uniqueName(SAVE_DIR, filename, fileExists);
     const dest = join(SAVE_DIR, name);
     await copyFile(source, dest);
@@ -136,6 +137,41 @@ export async function maybeSaveCopy(
     log.warn({ err, dir: SAVE_DIR }, 'could not save copy to share');
     return undefined;
   }
+}
+
+/**
+ * Make sure the share directory exists and that other users can actually read
+ * it. Node's mkdir mode is masked by the container's umask, which left the
+ * directory at 0700 and invisible to anything but root -- a media server
+ * scanning the share could not even enter it. So the mode is set explicitly
+ * afterwards, and the directory is handed to the same owner as the files in it.
+ *
+ * mkdir failures propagate: without the directory there is nowhere to copy to.
+ * chmod failures are logged and swallowed -- a share created by someone else is
+ * still perfectly usable, and losing the copy over it would be worse.
+ *
+ * mkdirFn/chmodFn/mode are injectable for tests; production passes none of them.
+ */
+export async function prepareShareDir(
+  dir: string,
+  log: Log,
+  {
+    mode = SAVE_DIR_MODE,
+    mkdirFn = mkdir,
+    chmodFn = chmod,
+  }: {
+    mode?: number;
+    mkdirFn?: (path: string, opts: { recursive: true; mode: number }) => Promise<unknown>;
+    chmodFn?: (path: string, mode: number) => Promise<void>;
+  } = {},
+): Promise<void> {
+  await mkdirFn(dir, { recursive: true, mode });
+  try {
+    await chmodFn(dir, mode);
+  } catch (err) {
+    log.warn({ err, dir, mode }, 'could not set mode on share directory');
+  }
+  await applyOwnership(dir, log);
 }
 
 /**

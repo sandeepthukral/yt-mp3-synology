@@ -16,6 +16,8 @@ services:
       # root-owned. Override in .env if the NAS account ever changes.
       - SAVE_UID=${SAVE_UID:-1028}
       - SAVE_GID=${SAVE_GID:-100}
+      # World-readable so Plex, running as another user, can index the share.
+      - SAVE_DIR_MODE=${SAVE_DIR_MODE:-755}
       # Uncomment together with the matching volume below if YouTube starts
       # bot-blocking the NAS and you need to supply browser cookies.
       # - COOKIES_FILE=/cookies/cookies.txt

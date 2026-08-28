@@ -29,6 +29,11 @@ export const JOB_TTL_MS = Number(process.env.JOB_TTL_MS ?? 30 * 60 * 1000);
 export const SAVE_UID = optionalId('SAVE_UID');
 export const SAVE_GID = optionalId('SAVE_GID');
 
+// Mode applied to SAVE_DIR itself. The default is world-readable on purpose:
+// the point of the share is that something else (a media server, another user)
+// can walk it, and the umask we inherit would otherwise leave it at 0700.
+export const SAVE_DIR_MODE = parseMode(process.env.SAVE_DIR_MODE) ?? 0o755;
+
 /** Parse an optional uid/gid, failing loudly at startup rather than silently
  *  ignoring a typo that would leave files owned by root. */
 function optionalId(name: string): number | undefined {
@@ -37,6 +42,17 @@ function optionalId(name: string): number | undefined {
   const value = Number(raw);
   if (!Number.isInteger(value) || value < 0) {
     throw new Error(`${name} must be a non-negative integer, got ${JSON.stringify(raw)}`);
+  }
+  return value;
+}
+
+/** Parse an optional octal directory mode ("755", "0775"). Same loud-failure
+ *  rule as the uid/gid parsing: a typo here silently hides the share. */
+function parseMode(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const value = Number.parseInt(raw.trim(), 8);
+  if (!/^0?[0-7]{3,4}$/.test(raw.trim()) || !Number.isInteger(value)) {
+    throw new Error(`SAVE_DIR_MODE must be an octal mode like 755, got ${JSON.stringify(raw)}`);
   }
   return value;
 }
