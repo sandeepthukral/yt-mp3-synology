@@ -58,6 +58,7 @@ channel mapped onto the **Artist** field, so VLC groups downloads by channel.
 | `SAVE_DIR` | `/share` | A copy of each mp3 is written here, in addition to being returned to the caller |
 | `SAVE_UID` | `1028` | Owner applied to files written to `SAVE_DIR` |
 | `SAVE_GID` | `100` | Group applied to files written to `SAVE_DIR` |
+| `SAVE_DIR_MODE` | `755` | Octal mode applied to `SAVE_DIR` itself |
 | `COOKIES_FILE` | unset | If set, passed to yt-dlp as `--cookies` |
 | `YTDLP_PATH` | `yt-dlp` | yt-dlp binary location |
 
@@ -72,7 +73,14 @@ over SMB. Either may be set alone — the other half is left unchanged. Both
 unset skips the chown entirely, which is the sensible default off-NAS. A bad
 value fails at startup rather than silently leaving files owned by root, and a
 chown that's refused at runtime is logged and ignored: the mp3 is already
-written, and wrong ownership beats no file. Override in `.env` — see
+written, and wrong ownership beats no file.
+
+`SAVE_DIR` itself is created and then chmodded to `SAVE_DIR_MODE`, and chowned
+to the same owner as the files. The chmod is deliberately separate from the
+`mkdir`: mkdir's mode is masked by the container's umask, which left the share
+at `0700` and unreadable by anything but root — Plex could not enter the folder
+to index it. Set `SAVE_DIR_MODE=775` (or `770`) to tighten it; a mode the
+container isn't allowed to set is logged and ignored. Override in `.env` — see
 [.env.example](.env.example). A failed copy to `SAVE_DIR` (share
 unmounted, disk full) is logged and ignored rather than failing the conversion,
 and colliding filenames get a ` (2)`, ` (3)` suffix.
