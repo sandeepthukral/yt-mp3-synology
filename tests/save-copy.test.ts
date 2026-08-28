@@ -1,8 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { uniqueName } from '../src/convert.js';
+import { describe, it, expect, vi } from 'vitest';
+import { uniqueName, applyOwnership } from '../src/convert.js';
 
 /** Build an `exists` probe backed by a fixed set of paths. */
 const existing = (...paths: string[]) => async (p: string) => paths.includes(p);
+
+const silentLog = () => ({ info: vi.fn(), warn: vi.fn() });
 
 describe('uniqueName', () => {
   it('keeps the original name when nothing collides', async () => {
@@ -36,5 +38,51 @@ describe('uniqueName', () => {
     // Everything collides: must still terminate with a usable, unique name.
     const name = await uniqueName('/share', 'Song.mp3', async () => true, 5);
     expect(name).toMatch(/^Song-\d+\.mp3$/);
+  });
+});
+
+describe('applyOwnership', () => {
+  it('does nothing when neither uid nor gid is configured', async () => {
+    const chownFn = vi.fn();
+    const log = silentLog();
+    expect(await applyOwnership('/share/Song.mp3', log, { chownFn })).toBe(false);
+    expect(chownFn).not.toHaveBeenCalled();
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it('chowns to the configured uid and gid', async () => {
+    const chownFn = vi.fn(async () => {});
+    expect(
+      await applyOwnership('/share/Song.mp3', silentLog(), { uid: 1028, gid: 100, chownFn }),
+    ).toBe(true);
+    expect(chownFn).toHaveBeenCalledWith('/share/Song.mp3', 1028, 100);
+  });
+
+  it('passes -1 for the half that is not configured, leaving it unchanged', async () => {
+    const chownFn = vi.fn(async () => {});
+    await applyOwnership('/share/Song.mp3', silentLog(), { uid: 1028, chownFn });
+    expect(chownFn).toHaveBeenCalledWith('/share/Song.mp3', 1028, -1);
+
+    chownFn.mockClear();
+    await applyOwnership('/share/Song.mp3', silentLog(), { gid: 100, chownFn });
+    expect(chownFn).toHaveBeenCalledWith('/share/Song.mp3', -1, 100);
+  });
+
+  it('treats uid 0 as configured rather than absent', async () => {
+    const chownFn = vi.fn(async () => {});
+    expect(await applyOwnership('/share/Song.mp3', silentLog(), { uid: 0, chownFn })).toBe(true);
+    expect(chownFn).toHaveBeenCalledWith('/share/Song.mp3', 0, -1);
+  });
+
+  it('logs and keeps the file when chown fails', async () => {
+    // A share mounted without the right privileges must not cost us the copy.
+    const chownFn = vi.fn(async () => {
+      throw new Error('EPERM: operation not permitted');
+    });
+    const log = silentLog();
+    expect(
+      await applyOwnership('/share/Song.mp3', log, { uid: 1028, gid: 100, chownFn }),
+    ).toBe(false);
+    expect(log.warn).toHaveBeenCalledOnce();
   });
 });

@@ -12,6 +12,10 @@ services:
       # A copy of every mp3 is written here, in addition to being returned to
       # whoever asked for it. Bound to /volume1/music/downloaded below.
       - SAVE_DIR=/share
+      # This container runs as root, so saved copies would otherwise be
+      # root-owned. Override in .env if the NAS account ever changes.
+      - SAVE_UID=${SAVE_UID:-1028}
+      - SAVE_GID=${SAVE_GID:-100}
       # Uncomment together with the matching volume below if YouTube starts
       # bot-blocking the NAS and you need to supply browser cookies.
       # - COOKIES_FILE=/cookies/cookies.txt

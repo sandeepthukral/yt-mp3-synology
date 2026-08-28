@@ -1,10 +1,17 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, readdir, copyFile, mkdir, access } from 'node:fs/promises';
+import { mkdtemp, readdir, copyFile, mkdir, access, chown } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sanitizeFilename } from './sanitize.js';
-import { YTDLP, DOWNLOAD_TIMEOUT_MS, COOKIES_FILE, SAVE_DIR } from './config.js';
+import {
+  YTDLP,
+  DOWNLOAD_TIMEOUT_MS,
+  COOKIES_FILE,
+  SAVE_DIR,
+  SAVE_UID,
+  SAVE_GID,
+} from './config.js';
 
 const execFileP = promisify(execFile);
 
@@ -122,11 +129,45 @@ export async function maybeSaveCopy(
     const name = await uniqueName(SAVE_DIR, filename, fileExists);
     const dest = join(SAVE_DIR, name);
     await copyFile(source, dest);
+    await applyOwnership(dest, log);
     log.info({ dest }, 'saved copy to share');
     return dest;
   } catch (err) {
     log.warn({ err, dir: SAVE_DIR }, 'could not save copy to share');
     return undefined;
+  }
+}
+
+/**
+ * Hand a saved copy to the configured owner. Without this every file in the
+ * share belongs to root, since that's who the container runs as.
+ *
+ * A failure here is logged and swallowed on purpose: the mp3 is already written
+ * and readable, and wrong ownership is a far smaller problem than losing the
+ * copy. -1 means "leave this half unchanged", so a uid can be set without a gid.
+ *
+ * uid/gid/chownFn are injectable for tests; production passes none of them.
+ */
+export async function applyOwnership(
+  dest: string,
+  log: Log,
+  {
+    uid = SAVE_UID,
+    gid = SAVE_GID,
+    chownFn = chown,
+  }: {
+    uid?: number;
+    gid?: number;
+    chownFn?: (path: string, uid: number, gid: number) => Promise<void>;
+  } = {},
+): Promise<boolean> {
+  if (uid === undefined && gid === undefined) return false;
+  try {
+    await chownFn(dest, uid ?? -1, gid ?? -1);
+    return true;
+  } catch (err) {
+    log.warn({ err, dest, uid, gid }, 'could not set owner on saved copy');
+    return false;
   }
 }
 
