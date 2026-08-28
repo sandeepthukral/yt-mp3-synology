@@ -9,3 +9,12 @@ services:
       - PORT=3030
       - AUTH_TOKEN=${AUTH_TOKEN:?set AUTH_TOKEN in .env}
       - DOWNLOAD_TIMEOUT_MS=900000
+      # Uncomment together with the matching volume below to drop a copy of
+      # every mp3 onto a NAS share.
+      # - SAVE_DIR=/share
+      # Uncomment together with the matching volume below if YouTube starts
+      # bot-blocking the NAS and you need to supply browser cookies.
+      # - COOKIES_FILE=/cookies/cookies.txt
+    # volumes:
+    #   - /volume1/music/yt2mp3:/share
+    #   - /volume1/docker/yt-mp3/cookies:/cookies:ro
