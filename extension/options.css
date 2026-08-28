@@ -1,0 +1,263 @@
+:root {
+  --bg: #081a12;
+  --panel: #0e2a1c;
+  --panel-border: #1c4430;
+  --text: #e7f3ec;
+  --text-dim: #a9c4b6;
+  --accent: #2fbf78;
+  --accent-strong: #24a366;
+  --warning-bg: #3a2a0c;
+  --warning-border: #8a5a10;
+  --warning-text: #f2d18b;
+  --ok-bg: #0e3322;
+  --ok-border: #1e8e5a;
+  --ok-text: #b7f0d2;
+  --danger-text: #f6b4ac;
+  --field-bg: #0a2118;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  display: flex;
+  justify-content: center;
+  padding: 40px 20px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  padding: 32px 36px 28px;
+  max-width: 520px;
+  width: 100%;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 1.4rem;
+}
+
+.subtitle {
+  margin: 0 0 20px;
+  color: var(--text-dim);
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
+code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.88em;
+}
+
+.banner {
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 0.88rem;
+  margin-bottom: 22px;
+  border: 1px solid transparent;
+}
+
+.banner--warning {
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--warning-text);
+}
+
+.banner--ok {
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
+  color: var(--ok-text);
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+}
+
+label {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin: 14px 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.required {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--danger-text);
+  border: 1px solid rgba(246, 180, 172, 0.4);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+.required.is-filled {
+  display: none;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="number"] {
+  background: var(--field-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  width: 100%;
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.input-with-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.input-with-toggle input {
+  flex: 1;
+}
+
+.ghost-btn {
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  color: var(--text-dim);
+  border-radius: 8px;
+  padding: 0 14px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.ghost-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.hint {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.checkbox-row {
+  flex-direction: row;
+  align-items: center;
+  margin-top: 18px;
+  cursor: pointer;
+}
+
+.checkbox-row input {
+  width: auto;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.primary-btn {
+  background: var(--accent);
+  color: #06180f;
+  font-weight: 600;
+  border: none;
+  border-radius: 9px;
+  padding: 10px 18px;
+  cursor: pointer;
+  font-size: 0.92rem;
+}
+
+.primary-btn:hover {
+  background: var(--accent-strong);
+}
+
+.primary-btn:disabled {
+  background: #315943;
+  color: #7f9a8c;
+  cursor: not-allowed;
+}
+
+.secondary-btn {
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  border-radius: 9px;
+  padding: 10px 18px;
+  cursor: pointer;
+  font-size: 0.92rem;
+}
+
+.secondary-btn:hover {
+  border-color: var(--accent);
+}
+
+.form-message {
+  min-height: 1.2em;
+  margin: 14px 0 0;
+  font-size: 0.85rem;
+}
+
+.form-message.success {
+  color: var(--ok-text);
+}
+
+.form-message.error {
+  color: var(--danger-text);
+}
+
+.usage {
+  margin-top: 28px;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 18px;
+}
+
+.usage h2 {
+  font-size: 1rem;
+  margin: 0 0 10px;
+}
+
+.usage ol {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text-dim);
+  font-size: 0.86rem;
+  line-height: 1.6;
+}
+
+.last-error {
+  margin-top: 28px;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 18px;
+}
+
+.last-error h2 {
+  font-size: 1rem;
+  margin: 0 0 10px;
+  color: var(--danger-text);
+}
+
+.last-error p {
+  margin: 0 0 6px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.last-error .hint {
+  color: var(--text-dim);
+}

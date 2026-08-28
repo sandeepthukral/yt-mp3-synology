@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "YT \u2192 MP3 (Personal Synology Service)",
+  "version": "1.0.0",
+  "description": "Click the toolbar button on any YouTube video to send it to your personal yt2mp3 server and save the MP3 straight to Downloads.",
+  "action": {
+    "default_title": "Convert this video to MP3",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "permissions": ["storage", "downloads", "notifications", "activeTab"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
