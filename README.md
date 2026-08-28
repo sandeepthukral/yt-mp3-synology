@@ -55,12 +55,25 @@ channel mapped onto the **Artist** field, so VLC groups downloads by channel.
 | `MAX_QUEUE` | `4` | Queued conversions before `503` |
 | `DOWNLOAD_TIMEOUT_MS` | `900000` | Per-conversion yt-dlp timeout |
 | `JOB_TTL_MS` | `1800000` | How long a finished async job is retained |
-| `SAVE_DIR` | unset | If set, a copy of each mp3 is written here |
+| `SAVE_DIR` | `/share` | A copy of each mp3 is written here, in addition to being returned to the caller |
+| `SAVE_UID` | `1028` | Owner applied to files written to `SAVE_DIR` |
+| `SAVE_GID` | `100` | Group applied to files written to `SAVE_DIR` |
 | `COOKIES_FILE` | unset | If set, passed to yt-dlp as `--cookies` |
 | `YTDLP_PATH` | `yt-dlp` | yt-dlp binary location |
 
-`SAVE_DIR` and `COOKIES_FILE` both need a matching bind mount — see the
-commented block in `docker-compose.yml`. A failed copy to `SAVE_DIR` (share
+`SAVE_DIR` is wired up in `docker-compose.yml` to `/volume1/music/downloaded`
+on the NAS. Saving a copy never replaces the download — the requester still
+gets the file back on the same request. `COOKIES_FILE` needs its own bind
+mount, still commented out in the compose file.
+
+The container runs as root, so saved copies are chowned to `SAVE_UID:SAVE_GID`
+afterwards; without that they'd be root-owned and awkward to manage from DSM or
+over SMB. Either may be set alone — the other half is left unchanged. Both
+unset skips the chown entirely, which is the sensible default off-NAS. A bad
+value fails at startup rather than silently leaving files owned by root, and a
+chown that's refused at runtime is logged and ignored: the mp3 is already
+written, and wrong ownership beats no file. Override in `.env` — see
+[.env.example](.env.example). A failed copy to `SAVE_DIR` (share
 unmounted, disk full) is logged and ignored rather than failing the conversion,
 and colliding filenames get a ` (2)`, ` (3)` suffix.
 
