@@ -2,8 +2,10 @@
 
 A minimal Manifest V3 Chrome extension that pairs with your
 [yt-mp3-synology](https://github.com/sandeepthukral/yt-mp3-synology) server. Click the
-toolbar button on a YouTube video and it POSTs the URL to your NAS, then saves the
-returned MP3 straight to your Downloads folder — no popup, no extra clicks.
+toolbar button on a YouTube video and it hands the URL to your NAS, then saves the
+resulting MP3 straight to your Downloads folder — no popup, no extra clicks.
+
+Requires a server new enough to return a `downloadKey` from `POST /jobs`.
 
 ## Install (unpacked)
 
@@ -43,9 +45,34 @@ instead of silently failing.
 
 - The extension only ever talks to the exact host/port you configured — permission is
   requested per-origin via `chrome.permissions.request`, not a blanket `<all_urls>` grant.
-- Long conversions keep the extension's service worker alive for as long as the
-  `fetch()` to `/convert` is pending. If your NAS is slow on very long videos and Chrome
-  kills the worker before it responds, the request will fail — the server-side
-  `MAX_QUEUE` / async job mode listed in the repo's backlog would be the fix for that.
 - There's no popup UI by design, matching a "click and it just downloads" workflow;
   everything else (setup, errors) surfaces via the settings page and notifications.
+- Only one conversion runs at a time. Clicking again while one is in flight tells you
+  so rather than queueing a second.
+
+## How it handles long videos
+
+Earlier versions made a single `POST /convert` request and waited for the MP3 to come
+back in the response body. That capped the workable file size, for two reasons:
+
+- A service worker has no `URL.createObjectURL`, so the response had to be base64'd
+  into a `data:` URL before `chrome.downloads` would take it. That inflates the file by
+  about a third and holds all of it in memory as one JavaScript string.
+- MV3 gives no guarantee that a worker outlives a single long request.
+
+It now uses the server's job API instead:
+
+1. `POST /jobs` → `{ id, downloadKey, status }`, which is written to
+   `chrome.storage.local` as the pending job.
+2. Poll `GET /jobs/:id` every 3 seconds until `done`.
+3. Hand `GET /jobs/:id/download?key=…` to `chrome.downloads`, which streams it to disk.
+
+Nothing reads the file's bytes, so a three-hour podcast costs the same memory as a
+three-minute song. And because the pending job lives in storage rather than in the
+worker's memory, a worker Chrome shuts down mid-conversion is revived by a
+`chrome.alarms` tick — hence the `alarms` permission — and carries on polling. Once
+the download has started, Chrome owns it and it completes regardless.
+
+The `?key=` is a per-job secret, not your `AUTH_TOKEN`: `chrome.downloads` can't set
+request headers, and putting the shared token in a URL would leak it into Chrome's
+download history. The key dies with the job.

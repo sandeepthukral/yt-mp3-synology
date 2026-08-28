@@ -8,7 +8,8 @@ sanitized title as filename.
 
 - **Server**: Fastify + TypeScript, shells out to `yt-dlp` (which drives `ffmpeg`)
 - **Deploy**: Docker on Synology DS220+ (x86_64), reachable only via Tailscale
-- **Client**: iOS Shortcut in the share sheet (no app, no Apple developer account)
+- **Clients**: iOS Shortcut in the share sheet (no app, no Apple developer
+  account), plus a Chrome extension in `extension/`
 - **Auth**: `X-Auth-Token` shared-secret header (`AUTH_TOKEN` env var)
 
 ## API
@@ -25,12 +26,16 @@ All routes except `/health` require the `X-Auth-Token: <secret>` header.
 
 For long videos, where holding a single HTTP request open is fragile:
 
-- `POST /jobs` `{ "url": "..." }` → `202 { id, status: "queued" }`
-- `GET /jobs/:id` → `{ id, status, filename?, error? }`
+- `POST /jobs` `{ "url": "..." }` → `202 { id, downloadKey, status: "queued" }`
+- `GET /jobs/:id` → `{ id, downloadKey, status, filename?, error? }`
   - `status` is `queued` → `running` → `done` | `error`
 - `GET /jobs/:id/download` → the mp3, same headers as `/convert`
   - `409` if the job isn't finished yet, `502` if it failed, `404` if the id is
     unknown *or* has expired
+  - accepts `?key=<downloadKey>` instead of the header, for clients that hand
+    this URL to something that can't set one (`chrome.downloads`, a plain link).
+    A per-job key rather than `AUTH_TOKEN` keeps the shared token out of
+    download histories and access logs, and the grant expires with the job.
 
 Jobs share the same one-at-a-time queue and `MAX_QUEUE` limit as `/convert`.
 A finished job's mp3 is kept on disk for `JOB_TTL_MS` (default 30 min) so a
@@ -133,6 +138,14 @@ instead:
 The filename comes from the server's Content-Disposition header, so naming is
 handled server-side. Anything saved into the VLC folder appears in VLC's
 library automatically.
+
+## Chrome extension
+
+`extension/` is a Manifest V3 extension: click the toolbar button on a YouTube
+tab and the MP3 lands in Downloads. It uses the job API above and hands the
+download URL to `chrome.downloads`, so Chrome streams the file to disk and
+long videos aren't limited by the service worker's memory. Load it unpacked —
+see [extension/README.md](extension/README.md).
 
 ## Playwright API test (against the live NAS)
 
